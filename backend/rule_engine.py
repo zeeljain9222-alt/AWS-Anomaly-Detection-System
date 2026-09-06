@@ -21,10 +21,10 @@ WEATHER_FEATURES = [
 ]
 
 
-def create_anomaly_result(result, timestamp=None):
+def create_anomaly_result(result, timestamp=None, station_id=None):
     """
-    Convert a rule result dictionary into the standard
-    AnomalyResult format.
+    Convert a rule result dictionary into
+    the standard AnomalyResult format.
     """
 
     return AnomalyResult(
@@ -34,38 +34,26 @@ def create_anomaly_result(result, timestamp=None):
         value=result.get("value"),
         timestamp=timestamp,
         reason=result.get("reason", ""),
+        station_id=station_id,
     )
 
 
-def analyze_weather_data(df):
+def analyze_single_station(data, station_id):
     """
-    Run all M3 anomaly detection rules on weather data.
-
-    Args:
-        df: Pandas DataFrame containing weather observations.
-
-    Returns:
-        list: List of detected anomalies.
+    Run all M3 anomaly detection rules
+    for one AWS station only.
     """
 
     results = []
 
-    # Make a copy so the original DataFrame is not modified.
-    data = df.copy()
-
-    # Make sure timestamps are datetime values.
-    if "timestamp" in data.columns:
-        data["timestamp"] = pd.to_datetime(
-            data["timestamp"],
-            format="mixed",
-            dayfirst=True
-        )
+    # Sort readings by timestamp
+    data = data.sort_values("timestamp").reset_index(drop=True)
 
     # --------------------------------------------------
     # 1. Missing sensor values
     # --------------------------------------------------
 
-    for index, row in data.iterrows():
+    for _, row in data.iterrows():
 
         result = detect_missing_values(row)
 
@@ -74,30 +62,31 @@ def analyze_weather_data(df):
             anomaly_result = create_anomaly_result(
                 result,
                 timestamp=row.get("timestamp"),
+                station_id=station_id,
             )
 
             results.append(anomaly_result)
 
     # --------------------------------------------------
-    # 2. Timestamp gaps
+    # 2. Timestamp gap detection
     # --------------------------------------------------
 
-    if "timestamp" in data.columns and len(data) > 1:
+    if len(data) > 1:
 
-        timestamps = data["timestamp"].reset_index(drop=True)
-
-        for i in range(1, len(timestamps)):
+        for i in range(1, len(data)):
 
             result = detect_timestamp_gap(
-                timestamps.iloc[i - 1],
-                timestamps.iloc[i],
+                data["timestamp"].iloc[i - 1],
+                data["timestamp"].iloc[i],
+                expected_interval_minutes=60
             )
 
             if result["anomaly"]:
 
                 anomaly_result = create_anomaly_result(
                     result,
-                    timestamp=timestamps.iloc[i],
+                    timestamp=data["timestamp"].iloc[i],
+                    station_id=station_id,
                 )
 
                 results.append(anomaly_result)
@@ -116,7 +105,6 @@ def analyze_weather_data(df):
             previous_value = data[feature].iloc[i - 1]
             current_value = data[feature].iloc[i]
 
-            # Skip missing values.
             if pd.isna(previous_value) or pd.isna(current_value):
                 continue
 
@@ -131,6 +119,7 @@ def analyze_weather_data(df):
                 anomaly_result = create_anomaly_result(
                     result,
                     timestamp=data["timestamp"].iloc[i],
+                    station_id=station_id,
                 )
 
                 results.append(anomaly_result)
@@ -145,24 +134,38 @@ def analyze_weather_data(df):
             continue
 
         values = data[feature].dropna().tolist()
-        original_indices = data.index[data[feature].notna()].tolist()
+        original_indices = data.index[
+            data[feature].notna()
+        ].tolist()
 
-        result = detect_frozen_value(values)
+        result = detect_frozen_value(
+    values,
+    feature=feature
+)
 
         if result["anomaly"]:
+
             result["feature"] = feature
 
             position = result.get("position")
 
-            if position is not None and position < len(original_indices):
+            if (
+                position is not None
+                and position < len(original_indices)
+            ):
                 original_index = original_indices[position]
-                timestamp = data.loc[original_index, "timestamp"]
+
+                timestamp = data.loc[
+                    original_index,
+                    "timestamp"
+                ]
             else:
                 timestamp = None
 
             anomaly_result = create_anomaly_result(
                 result,
                 timestamp=timestamp,
+                station_id=station_id,
             )
 
             results.append(anomaly_result)
@@ -177,7 +180,6 @@ def analyze_weather_data(df):
             continue
 
         values = data[feature].dropna().tolist()
-        original_indices = data.index[data[feature].notna()].tolist()
 
         result = detect_drift(
             values=values,
@@ -186,43 +188,84 @@ def analyze_weather_data(df):
 
         if result["anomaly"]:
 
-            position = result.get("position")
-
-            if position is not None and position < len(original_indices):
-                original_index = original_indices[position]
-                timestamp = data.loc[original_index, "timestamp"]
-            else:
-                timestamp = None
-
             anomaly_result = create_anomaly_result(
                 result,
-                timestamp=timestamp,
+                timestamp=data["timestamp"].iloc[-1],
+                station_id=station_id,
             )
 
             results.append(anomaly_result)
 
     return results
 
+
+def analyze_weather_data(df):
+    """
+    Run M3 anomaly detection rules.
+
+    If multiple AWS stations are present,
+    each station is analyzed separately.
+    """
+
+    data = df.copy()
+
+    # Convert timestamp to datetime
+    data["timestamp"] = pd.to_datetime(
+        data["timestamp"],
+        format="mixed",
+        dayfirst=True
+    )
+
+    results = []
+
+    # --------------------------------------------------
+    # Analyze each AWS station separately
+    # --------------------------------------------------
+
+    if "station_id" in data.columns:
+
+        for station_id, station_data in data.groupby(
+            "station_id"
+        ):
+
+            station_results = analyze_single_station(
+                station_data.copy(),
+                station_id
+            )
+
+            results.extend(station_results)
+
+    else:
+
+        # If station_id is not available,
+        # analyze the complete dataset
+        results = analyze_single_station(
+            data,
+            station_id=None
+        )
+
+    return results
+
+
 def analyze_weather_csv(csv_path):
     """
-    Load M2 output CSV and run the M3 Rule Engine.
+    Load CSV and run the M3 Rule Engine.
     """
 
     data = pd.read_csv(csv_path)
 
     return analyze_weather_data(data)
 
+
 def integrate_m2_m3(df):
     """
-    Combine M2 ML results with M3 rule-based results.
-
-    M2 columns are preserved.
-    M3 can report multiple rule anomalies for the same timestamp.
+    Combine M2 ML results with
+    M3 rule-based results.
     """
 
     data = df.copy()
 
-    # Parse timestamps
+    # Convert timestamp
     data["timestamp"] = pd.to_datetime(
         data["timestamp"],
         format="mixed",
@@ -232,67 +275,93 @@ def integrate_m2_m3(df):
     # Run M3 rules
     m3_results = analyze_weather_data(data)
 
-    # Preserve all M2 columns
+    # Preserve M2 output
     integrated = data.copy()
 
-    # M3 output columns
+    # Add M3 columns
     integrated["rule_anomaly"] = False
     integrated["rule_anomaly_type"] = "NORMAL"
     integrated["rule_feature"] = None
     integrated["rule_reason"] = ""
 
-    # Group multiple M3 results by timestamp
-    grouped_results = {}
+    # --------------------------------------------------
+    # Add M3 results to matching station + timestamp
+    # --------------------------------------------------
 
     for result in m3_results:
 
-        timestamp = result.timestamp
+        if not result.anomaly:
+            continue
 
-        if timestamp not in grouped_results:
-            grouped_results[timestamp] = []
+        # Match both station and timestamp
+        if result.station_id is not None:
 
-        grouped_results[timestamp].append(result)
-
-    # Add M3 results to corresponding rows
-    for timestamp, results in grouped_results.items():
-
-        matches = integrated["timestamp"] == timestamp
-
-        anomaly_types = []
-        features = []
-        reasons = []
-
-        for result in results:
-
-            if result.anomaly:
-
-                anomaly_types.append(result.anomaly_type)
-
-                if result.feature is not None:
-                    if isinstance(result.feature, list):
-                        features.extend(result.feature)
-                    else:
-                        features.append(result.feature)
-
-                if result.reason:
-                    reasons.append(result.reason)
-
-        if anomaly_types:
-
-            integrated.loc[matches, "rule_anomaly"] = True
-
-            integrated.loc[matches, "rule_anomaly_type"] = (
-                ", ".join(dict.fromkeys(anomaly_types))
+            matches = (
+                (integrated["station_id"] == result.station_id)
+                &
+                (integrated["timestamp"] == result.timestamp)
             )
 
-            integrated.loc[matches, "rule_feature"] = (
-                ", ".join(dict.fromkeys(features))
-                if features
-                else None
+        else:
+
+            matches = (
+                integrated["timestamp"]
+                == result.timestamp
             )
 
-            integrated.loc[matches, "rule_reason"] = (
-                " | ".join(dict.fromkeys(reasons))
+        integrated.loc[
+            matches,
+            "rule_anomaly"
+        ] = True
+
+        # Add anomaly type
+        existing_type = integrated.loc[
+            matches,
+            "rule_anomaly_type"
+        ].iloc[0]
+
+        if existing_type == "NORMAL":
+
+            integrated.loc[
+                matches,
+                "rule_anomaly_type"
+            ] = result.anomaly_type
+
+        else:
+
+            integrated.loc[
+                matches,
+                "rule_anomaly_type"
+            ] = (
+                existing_type
+                + ", "
+                + result.anomaly_type
             )
+
+        # Add feature
+        if result.feature is not None:
+
+            if isinstance(result.feature, list):
+
+                feature_value = ", ".join(
+                    result.feature
+                )
+
+            else:
+
+                feature_value = str(
+                    result.feature
+                )
+
+            integrated.loc[
+                matches,
+                "rule_feature"
+            ] = feature_value
+
+        # Add reason
+        integrated.loc[
+            matches,
+            "rule_reason"
+        ] = result.reason
 
     return integrated

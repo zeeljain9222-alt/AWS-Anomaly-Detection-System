@@ -153,9 +153,8 @@ app.add_middleware(
 # =====================================
 # LOAD M2 MODEL
 # =====================================
-
 model = joblib.load(
-    "models/isolation_forest.pkl"
+    "models/isolation_forest_model.pkl"
 )
 
 scaler = joblib.load(
@@ -242,12 +241,12 @@ def run_anomaly_pipeline(
     # =====================================
 
     input_data = np.array([[
-        data.pressure,
-        data.temperature,
-        data.humidity,
-        data.wind_speed,
-        data.rainfall
-    ]])
+    data.temperature,
+    data.humidity,
+    data.pressure,
+    data.wind_speed,
+    data.rainfall
+]])
 
     scaled_data = scaler.transform(input_data)
 

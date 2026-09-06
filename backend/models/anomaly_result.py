@@ -1,32 +1,20 @@
-from dataclasses import dataclass
-from typing import Any, Optional
-
-
-@dataclass
 class AnomalyResult:
-    """
-    Standard output format for the M3 Rule Engine.
 
-    This object is passed from M3 to M4.
-    """
+    def __init__(
+        self,
+        anomaly,
+        anomaly_type,
+        feature,
+        value,
+        timestamp,
+        reason,
+        station_id=None
+    ):
 
-    anomaly: bool
-    anomaly_type: str
-    feature: Any
-    value: Optional[float]
-    timestamp: Any
-    reason: str
-
-    def to_dict(self):
-        """
-        Convert the anomaly result into a dictionary.
-        """
-
-        return {
-            "anomaly": self.anomaly,
-            "anomaly_type": self.anomaly_type,
-            "feature": self.feature,
-            "value": self.value,
-            "timestamp": self.timestamp,
-            "reason": self.reason,
-        }
+        self.anomaly = anomaly
+        self.anomaly_type = anomaly_type
+        self.feature = feature
+        self.value = value
+        self.timestamp = timestamp
+        self.reason = reason
+        self.station_id = station_id

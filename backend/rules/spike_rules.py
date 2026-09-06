@@ -2,17 +2,6 @@ from config import SPIKE_THRESHOLDS
 
 
 def detect_spike(previous_value, current_value, feature):
-    """
-    Detect a sudden change in a weather feature.
-
-    Args:
-        previous_value: Previous sensor reading.
-        current_value: Current sensor reading.
-        feature: Weather feature being checked.
-
-    Returns:
-        dict: Result of the spike check.
-    """
 
     if feature not in SPIKE_THRESHOLDS:
         return {
@@ -28,6 +17,7 @@ def detect_spike(previous_value, current_value, feature):
     change = abs(current_value - previous_value)
 
     if change > threshold:
+
         return {
             "anomaly": True,
             "anomaly_type": "SPIKE",
@@ -35,7 +25,7 @@ def detect_spike(previous_value, current_value, feature):
             "value": current_value,
             "reason": (
                 f"Sudden change detected in {feature}. "
-                f"Value changed by {change}, "
+                f"Value changed by {change:.2f}, "
                 f"which is greater than the threshold {threshold}."
             ),
         }

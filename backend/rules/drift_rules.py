@@ -2,18 +2,9 @@ from config import DRIFT_CONFIG
 
 
 def detect_drift(values, feature):
-    """
-    Detect gradual movement away from a baseline.
-
-    Args:
-        values: Sequence of sensor readings.
-        feature: Weather feature being checked.
-
-    Returns:
-        dict: Result of the drift check.
-    """
 
     if feature not in DRIFT_CONFIG:
+
         return {
             "anomaly": False,
             "anomaly_type": "NORMAL",
@@ -31,6 +22,7 @@ def detect_drift(values, feature):
     required_values = baseline_window + recent_window
 
     if len(values) < required_values:
+
         return {
             "anomaly": False,
             "anomaly_type": "NORMAL",
@@ -51,6 +43,7 @@ def detect_drift(values, feature):
     difference = abs(recent_average - baseline_average)
 
     if difference > threshold:
+
         return {
             "anomaly": True,
             "anomaly_type": "DRIFT",

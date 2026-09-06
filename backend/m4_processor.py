@@ -30,7 +30,8 @@ from explanations import (
 
 from health_score import (
     update_health,
-    FEATURES
+    FEATURES,
+    HEALTH_RECOVERY
 )
 
 

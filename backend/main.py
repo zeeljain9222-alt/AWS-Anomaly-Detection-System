@@ -443,12 +443,12 @@ def run_anomaly_pipeline(
 
     m4_result = process_row(
 
-        row=m4_input,
+    row=m4_input,
 
-        previous_health=overall_health,
+    previous_station_health=overall_health,
 
-        feature_health=feature_health
-    )
+    previous_feature_health=feature_health
+)
 
 
     # =====================================
@@ -456,8 +456,8 @@ def run_anomaly_pipeline(
     # =====================================
 
     state["overall_health"] = (
-        m4_result["sensor_health"]
-    )
+    m4_result["station_health"]
+)
 
     state["feature_health"] = (
         m4_result["feature_health"]
@@ -510,7 +510,7 @@ def run_anomaly_pipeline(
 
             "explanation": m4_result["explanation"],
 
-            "sensor_health": m4_result["sensor_health"],
+            "sensor_health": m4_result["station_health"],
 
             "feature_health": m4_result["feature_health"]
         },

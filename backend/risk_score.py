@@ -2,8 +2,8 @@
 M4 - Risk Score Calculator
 
 Combines:
-    - M2 Isolation Forest evidence
-    - M3 rule-based evidence
+    - M2 ML anomaly information
+    - M3 rule-based anomaly information
 
 Output:
     Risk score from 0 to 100
@@ -12,7 +12,7 @@ Output:
 from typing import Optional
 
 
-# Project-defined risk values for M3 rules
+# Risk assigned to each M3 rule
 RULE_RISK = {
     "MISSING_DATA": 80,
     "TIMESTAMP_GAP": 50,
@@ -21,40 +21,63 @@ RULE_RISK = {
     "DRIFT": 70,
 }
 
-
-# ML anomaly risk range
+# Risk range for ML anomalies
 ML_MIN_RISK = 40
 ML_MAX_RISK = 60
 
 
+def is_ml_anomaly(ml_prediction, ml_status=None):
+    """
+    Decide whether M2 detected an anomaly.
+
+    We prefer ml_status because the new dataset contains:
+        Normal
+        Anomaly
+
+    This avoids problems caused by different numeric encodings.
+    """
+
+    if ml_status is not None:
+        status = str(ml_status).strip().lower()
+
+        if status == "anomaly":
+            return True
+
+        if status == "normal":
+            return False
+
+    # Fallback for older datasets
+    if ml_prediction in (1, "1"):
+        return True
+
+    # Isolation Forest style
+    if ml_prediction in (-1, "-1"):
+        return True
+
+    return False
+
+
 def calculate_ml_risk(
-    ml_prediction: int,
+    ml_prediction,
     anomaly_score: Optional[float],
-    anomaly_floor: float = -0.05
-) -> int:
+    ml_status=None,
+    anomaly_floor=-0.20
+):
     """
-    Convert Isolation Forest anomaly evidence
-    into a risk score.
-
-    Normal ML prediction:
-        0 -> risk 0
-
-    ML anomaly:
-        1 -> risk between 40 and 60
+    Calculate risk caused by the ML model.
     """
 
-    if ml_prediction != 1:
+    if not is_ml_anomaly(ml_prediction, ml_status):
         return 0
 
-    # If score is unavailable, use minimum ML risk
+    # If score is missing, give minimum ML risk
     if anomaly_score is None:
         return ML_MIN_RISK
 
-    anomaly_score = float(anomaly_score)
+    score = float(anomaly_score)
 
-    # Isolation Forest:
-    # more negative score = stronger anomaly
-    strength = abs(anomaly_score) / abs(anomaly_floor)
+    # More negative = stronger anomaly
+    strength = abs(score) / abs(anomaly_floor)
 
     # Keep strength between 0 and 1
     strength = max(0.0, min(strength, 1.0))
@@ -68,14 +91,11 @@ def calculate_ml_risk(
 
 
 def calculate_rule_risk(
-    rule_anomaly: bool,
+    rule_anomaly,
     rule_anomaly_type: Optional[str]
-) -> int:
+):
     """
-    Calculate risk from M3 rule results.
-
-    If multiple rules are triggered,
-    the highest-risk rule is used.
+    Calculate risk caused by M3 rules.
     """
 
     if not rule_anomaly:
@@ -84,6 +104,8 @@ def calculate_rule_risk(
     if not rule_anomaly_type:
         return 50
 
+    # M3 may have multiple rules:
+    # SPIKE, DRIFT
     rules = [
         rule.strip().upper()
         for rule in str(rule_anomaly_type).split(",")
@@ -99,26 +121,31 @@ def calculate_rule_risk(
     if not risks:
         return 0
 
+    # If multiple rules fire, use the most serious one
     return max(risks)
 
 
 def calculate_risk_score(
-    ml_prediction: int,
-    anomaly_score: Optional[float],
-    rule_anomaly: bool,
-    rule_anomaly_type: Optional[str],
-    anomaly_floor: float = -0.05
-) -> int:
+    ml_prediction,
+    anomaly_score,
+    rule_anomaly,
+    rule_anomaly_type,
+    ml_status=None,
+    anomaly_floor=-0.20
+):
     """
     Calculate final M4 risk score.
 
-    ML and rule evidence are combined.
-    Final score is capped at 100.
+    Final risk =
+        ML risk + Rule risk
+
+    Maximum = 100
     """
 
     ml_risk = calculate_ml_risk(
         ml_prediction,
         anomaly_score,
+        ml_status,
         anomaly_floor
     )
 

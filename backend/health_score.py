@@ -1,30 +1,36 @@
 """
-M4 - Sensor Health Score
+M4 - Station and Feature Health
 
-Tracks:
-    - Overall station health
-    - Individual weather feature health
+Health is maintained separately
+for every AWS station.
 """
 
 from typing import Optional
 
 
+# Weather features
 FEATURES = [
     "temperature",
     "humidity",
     "pressure",
     "wind_speed",
-    "rainfall"
+    "rainfall",
 ]
 
 
-# Health penalty for different anomaly types
+# Health penalty for different problems
 HEALTH_PENALTY = {
+
     "ML_ANOMALY": 2,
+
     "TIMESTAMP_GAP": 3,
+
     "SPIKE": 5,
+
     "DRIFT": 6,
+
     "FROZEN_VALUE": 8,
+
     "MISSING_DATA": 8,
 }
 
@@ -33,19 +39,23 @@ HEALTH_PENALTY = {
 HEALTH_RECOVERY = 0.5
 
 
-def calculate_health_change(
-    ml_prediction: int,
+def update_health(
+    previous_health: float,
+    ml_anomaly: bool,
     rule_anomaly: bool,
     rule_anomaly_type: Optional[str]
-) -> float:
+):
     """
-    Calculate how much health should change.
+    Update health score.
+
+    Health is always between 0 and 100.
     """
 
     penalty = 0
 
     # ML anomaly
-    if ml_prediction == 1:
+    if ml_anomaly:
+
         penalty += HEALTH_PENALTY["ML_ANOMALY"]
 
     # Rule anomaly
@@ -55,80 +65,36 @@ def calculate_health_change(
             rule.strip().upper()
             for rule in str(rule_anomaly_type).split(",")
             if rule.strip()
+            and rule.strip().upper() != "NORMAL"
         ]
 
-        rule_penalties = [
+        penalties = [
             HEALTH_PENALTY.get(rule, 4)
             for rule in rules
-            if rule != "NORMAL"
         ]
 
-        if rule_penalties:
-            # Use the strongest rule
-            penalty += max(rule_penalties)
+        if penalties:
 
-    # Normal reading → gradual recovery
+            # Use strongest penalty
+            penalty += max(penalties)
+
+    # Normal reading → slight recovery
     if penalty == 0:
-        return HEALTH_RECOVERY
 
-    return -penalty
+        new_health = (
+            previous_health
+            + HEALTH_RECOVERY
+        )
 
+    else:
 
-def update_overall_health(
-    previous_health: float,
-    ml_prediction: int,
-    rule_anomaly: bool,
-    rule_anomaly_type: Optional[str]
-) -> float:
-    """
-    Update overall station health.
-    """
+        new_health = (
+            previous_health
+            - penalty
+        )
 
-    change = calculate_health_change(
-        ml_prediction,
-        rule_anomaly,
-        rule_anomaly_type
-    )
-
-    new_health = previous_health + change
-
+    # Keep between 0 and 100
     return round(
         max(0, min(100, new_health)),
         2
     )
-
-
-def update_feature_health(
-    health: dict,
-    rule_anomaly: bool,
-    rule_anomaly_type: Optional[str],
-    rule_feature: Optional[str]
-) -> dict:
-    """
-    Update health of the specific feature affected
-    by the M3 rule.
-    """
-
-    if not rule_anomaly:
-        return health
-
-    if not rule_feature:
-        return health
-
-    feature = str(rule_feature).strip().lower()
-
-    if feature not in health:
-        return health
-
-    change = calculate_health_change(
-        ml_prediction=0,
-        rule_anomaly=True,
-        rule_anomaly_type=rule_anomaly_type
-    )
-
-    health[feature] = round(
-        max(0, min(100, health[feature] + change)),
-        2
-    )
-
-    return health
